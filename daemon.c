@@ -1,5 +1,6 @@
 #include <stdio.h> 
 #include <string.h> 
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -20,26 +21,41 @@ void signalHandler(int signum){
 	flag = 1;
 }
 
-int Daemon() {
+int Daemon(char* argv[]) {
 	signal(SIGINT, signalHandler);
 	printf("Daemon function has been called \n");
 	int fd; // file descriptor
-	int str_length; // the length of a written string
-	char text[] = "Output from daemon's write() function\n";
-	while(1){ // here we are waiting for a signal which changes the flag to 1
+	int str_length;
+	char buf[128];
+	fd = open(argv[1], O_RDONLY, S_IRWXU); // read only permission
+	if (fd < 0) {
+		printf("Error has occured");
+		exit(1);
+	}
+	str_length = read(fd, buf, 128);
+	close(fd);
+	buf[str_length - 1] = '\0';
+	printf("The command is %s\n", buf);
+	while(1){ 
 		if (flag){
 			fd = open("daemon_output.txt", O_RDWR|O_CREAT, S_IRWXU); // we create, if the file does not exist, read/write, file owner has read, write, exec permissions
-			ftruncate(fd, 0); // cleans up the file (or causes the file to have a size of 0 bytes)
-			lseek(fd, 0, SEEK_END); // set the file offset to the size of the file plus offset
-			str_length = write(fd, text, sizeof(text)); // writing our text to the file 
-			printf("The string of the size of %i was successfully written to the output file \n", str_length);
+			if (fd < 0) {
+				printf("Error has occured");
+				exit(1);
+			}
+			//int saveStdout = dup(1); // saving stdout 
+			dup2(fd, 1); // redirecting the output from stdout to our file			
+			char* argv2[] = {argv[1], NULL};
+			execve(buf, argv2, NULL); // the first element of argv array must start with the filename associated with the file being executed
+			//dup2(saveStdout, 1); // redirecting the output back to stdout
+			close(fd);
 			exit(0); // ending the daemon process
 		}
 	}
 	return 0;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
 	pid_t parpid;
     if((parpid=fork())<0){                   
@@ -50,6 +66,6 @@ int main()
     	exit(0);            // parpid != 0, ending the parent process
     setsid();           // setting the child process to the new session (disconnecting it from the shell)
     printf("Hey, this is daemon. My pid is %i\n", getpid());
-	Daemon();           // daemon call
+	Daemon(argv);           // daemon call
     return 0;
 }
