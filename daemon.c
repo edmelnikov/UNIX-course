@@ -36,22 +36,20 @@ int Daemon(char* argv[]) {
 	close(fd);
 	buf[str_length - 1] = '\0';
 	printf("The command is %s\n", buf);
-	while(1){ 
-		if (flag){
-			fd = open("daemon_output.txt", O_RDWR|O_CREAT, S_IRWXU); // we create, if the file does not exist, read/write, file owner has read, write, exec permissions
-			if (fd < 0) {
-				printf("Error has occured");
-				exit(1);
-			}
-			//int saveStdout = dup(1); // saving stdout 
-			dup2(fd, 1); // redirecting the output from stdout to our file			
-			char* argv2[] = {argv[1], NULL};
-			execve(buf, argv2, NULL); // the first element of argv array must start with the filename associated with the file being executed
-			//dup2(saveStdout, 1); // redirecting the output back to stdout
-			close(fd);
-			exit(0); // ending the daemon process
+	pause();
+	if (flag){
+		fd = open("daemon_output.txt", O_RDWR|O_CREAT, S_IRWXU); // we create, if the file does not exist, read/write, file owner has read, write, exec permissions
+		if (fd < 0) {
+			printf("Error has occured");
+			exit(1);
 		}
-	}
+		int saveStdout = dup(1); // saving stdout 
+		dup2(fd, 1); // redirecting the output from stdout to our file		
+		char* argv2[] = {argv[1], NULL};
+		execve(buf, argv2, NULL); // the first element of argv array must start with the filename associated with the file being executed
+		dup2(saveStdout, 1); // redirecting the output back to stdout
+		printf("Error has occured in execve()\n"); 
+		}
 	return 0;
 }
 
@@ -62,8 +60,11 @@ int main(int argc, char* argv[])
 		printf("\ncan't fork"); 
 		exit(1);               
 	}
-    else if (parpid!=0) 
+    else if (parpid!=0){
+		int status;
+		wait(&status);
     	exit(0);            // parpid != 0, ending the parent process
+    }
     setsid();           // setting the child process to the new session (disconnecting it from the shell)
     printf("Hey, this is daemon. My pid is %i\n", getpid());
 	Daemon(argv);           // daemon call
