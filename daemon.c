@@ -60,11 +60,11 @@ int main(int argc, char* argv[])
 		printf("\ncan't fork"); 
 		exit(1);               
 	}
-    else if (parpid!=0){
+	else if (parpid!=0){
 		int status;
 		wait(&status);
 		exit(0);            // parpid != 0, ending the parent process
-    }
+	}
 	setsid();           // setting the child process to the new session (disconnecting it from the shell)
 	printf("Hey, this is daemon. My pid is %i\n", getpid());
 	Daemon(argv);           // daemon call
