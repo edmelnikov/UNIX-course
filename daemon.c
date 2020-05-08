@@ -49,24 +49,24 @@ int Daemon(char* argv[]) {
 		execve(buf, argv2, NULL); // the first element of argv array must start with the filename associated with the file being executed
 		dup2(saveStdout, 1); // redirecting the output back to stdout
 		printf("Error has occured in execve()\n"); 
-		}
+	}
 	return 0;
 }
 
 int main(int argc, char* argv[])
 {
 	pid_t parpid;
-    if((parpid=fork())<0){                   
+	if((parpid=fork())<0){                   
 		printf("\ncan't fork"); 
 		exit(1);               
 	}
     else if (parpid!=0){
 		int status;
 		wait(&status);
-    	exit(0);            // parpid != 0, ending the parent process
+		exit(0);            // parpid != 0, ending the parent process
     }
-    setsid();           // setting the child process to the new session (disconnecting it from the shell)
-    printf("Hey, this is daemon. My pid is %i\n", getpid());
+	setsid();           // setting the child process to the new session (disconnecting it from the shell)
+	printf("Hey, this is daemon. My pid is %i\n", getpid());
 	Daemon(argv);           // daemon call
     return 0;
 }
