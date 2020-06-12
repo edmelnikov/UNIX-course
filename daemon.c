@@ -13,42 +13,86 @@
 #include <resolv.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <semaphore.h>
+#include <pthread.h>
 
-int flag = 0;
+int flag_do = 0;
+int flag_stop = 0;
+sem_t sem;
 
-void signalHandler(int signum){
+void sigintHandler(int signum){
 	printf("Signal number %d was caught! \n", signum);
-	flag = 1;
+	flag_stop = 1;
+}
+
+void sighupHandler(int signum){
+	printf("Signal number %d was caught! \n", signum);
+	flag_do = 1;	
 }
 
 int Daemon(char* argv[]) {
-	signal(SIGINT, signalHandler);
+	signal(SIGINT, sigintHandler); // signal 2 stops the daemon
+	signal(SIGHUP, sighupHandler); // signal 1 makes the daemon execute all the commands
 	printf("Daemon function has been called \n");
-	int fd; // file descriptor
-	int str_length;
-	char buf[128];
-	fd = open(argv[1], O_RDONLY, S_IRWXU); // read only permission
-	if (fd < 0) {
-		printf("Error has occured");
-		exit(1);
-	}
-	str_length = read(fd, buf, 128);
-	close(fd);
-	buf[str_length - 1] = '\0';
-	printf("The command is %s\n", buf);
-	pause();
-	if (flag){
-		fd = open("daemon_output.txt", O_RDWR|O_CREAT, S_IRWXU); // we create, if the file does not exist, read/write, file owner has read, write, exec permissions
-		if (fd < 0) {
-			printf("Error has occured");
-			exit(1);
-		}
-		int saveStdout = dup(1); // saving stdout 
-		dup2(fd, 1); // redirecting the output from stdout to our file		
-		char* argv2[] = {argv[1], NULL};
-		execve(buf, argv2, NULL); // the first element of argv array must start with the filename associated with the file being executed
-		dup2(saveStdout, 1); // redirecting the output back to stdout
-		printf("Error has occured in execve()\n"); 
+	pid_t pid;
+	char* argv2[] = {argv[1], NULL};	
+	sem_init(&sem, 0, 1); // initializing the semaphore
+		
+	while(1) {
+		pause();		
+		if (flag_do == 1){
+			printf("Working...\n");			
+			int fd = open(argv[1], O_RDONLY, S_IRWXU); // read only permission
+			if (fd < 0) {
+				printf("Error opening an input file has occured!\n");
+				exit(1);
+			}	
+			
+			char buf[1024];			
+			read(fd, buf, sizeof(buf));
+			close(fd);
+			char* input_commands[1024];
+			int input_commands_count = 0; 
+			
+			char* command = strtok(buf, "\n");
+			printf("List of input commands:\n");
+			while (command != NULL){
+				input_commands[input_commands_count] = command;
+				input_commands[input_commands_count][strlen(command)] = '\0';
+				command = strtok(NULL, "\n");
+				printf("%s\n", input_commands[input_commands_count]);
+				input_commands_count++;
+			}
+			
+			fd = open("daemon_output.txt", O_RDWR|O_CREAT, S_IRWXU);
+			ftruncate(fd, 0); // if we used the program before, the file may be filled with previous data
+			// so we clean it up
+			
+			for (int i = 0; i < input_commands_count; i++){
+				pid = fork(); // new child process
+				if (pid == 0){
+					sem_wait(&sem);					
+					lseek(fd, 0, SEEK_END);
+					dup2(fd, 1); // redirecting the output from stdout to our file
+					printf("Command %d (%s):\n", i + 1, input_commands[i]); 
+					execve(input_commands[i], argv2, NULL);
+				}							
+				else if (pid > 0 ){
+					int status;
+					wait(&status); //zombie fix
+				}
+			}	
+			close(fd);		
+		}		
+		flag_do = 0; // lets us use the daemon multiple times
+		
+		if (flag_stop == 1) { // if we are done working with the daemon
+			sem_wait(&sem);
+			printf("Stopping the daemon\n");
+			sem_post(&sem); // unlocking the semaphore
+			sem_destroy(&sem); // and destroying it
+			exit(0);
+		}		
 	}
 	return 0;
 }
@@ -62,11 +106,11 @@ int main(int argc, char* argv[])
 	}
 	else if (parpid!=0){
 		int status;
-		wait(&status);
-		exit(0);            // parpid != 0, ending the parent process
+		wait(&status); // zombie fix
+		exit(0); // parpid != 0, ending the parent process
 	}
-	setsid();           // setting the child process to the new session (disconnecting it from the shell)
+	setsid(); // setting the child process to the new session (disconnecting it from the shell)
 	printf("Hey, this is daemon. My pid is %i\n", getpid());
-	Daemon(argv);           // daemon call
+	Daemon(argv); // daemon call
     return 0;
 }
