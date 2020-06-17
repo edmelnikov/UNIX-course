@@ -18,25 +18,33 @@
 
 int flag_do = 0;
 int flag_stop = 0;
-sem_t sem;
+sem_t* sem_p;
+char* sem_name = "/mysem";
 
 void sigintHandler(int signum){
-	printf("Signal number %d was caught! \n", signum);
+	printf("Signal number %d has been caught! \n", signum);
 	flag_stop = 1;
 }
 
 void sighupHandler(int signum){
-	printf("Signal number %d was caught! \n", signum);
+	printf("Signal number %d has been caught! \n", signum);
 	flag_do = 1;	
+}
+
+void sigchldHandler(int signum){
+	sem_post(sem_p); // unlocking the semaphore when a child process exits
 }
 
 int Daemon(char* argv[]) {
 	signal(SIGINT, sigintHandler); // signal 2 stops the daemon
 	signal(SIGHUP, sighupHandler); // signal 1 makes the daemon execute all the commands
+	signal(SIGCHLD, sigchldHandler); // lets the semaphore be unlocked as soon as a child exits
+	
 	printf("Daemon function has been called \n");
 	pid_t pid;
 	char* argv2[] = {argv[1], NULL};	
-	sem_init(&sem, 0, 1); // initializing the semaphore
+	sem_p = sem_open(sem_name, O_CREAT); // creating a new named semaphore 
+	sem_post(sem_p); // just in case 
 		
 	while(1) {
 		pause();		
@@ -65,13 +73,13 @@ int Daemon(char* argv[]) {
 			}
 			
 			fd = open("daemon_output.txt", O_RDWR|O_CREAT, S_IRWXU);
-			ftruncate(fd, 0); // if we used the program before, the file may be filled with previous data
+			ftruncate(fd, 0); // if we have used the program before, the file may be filled with previous data
 			// so we clean it up
 			
 			for (int i = 0; i < input_commands_count; i++){
 				pid = fork(); // new child process
 				if (pid == 0){
-					sem_wait(&sem);					
+					sem_wait(sem_p);					
 					lseek(fd, 0, SEEK_END);
 					dup2(fd, 1); // redirecting the output from stdout to our file
 					printf("Command %d (%s):\n", i + 1, input_commands[i]); 
@@ -79,7 +87,7 @@ int Daemon(char* argv[]) {
 				}							
 				else if (pid > 0 ){
 					int status;
-					wait(&status); //zombie fix
+					wait(&status); // zombie fix
 				}
 			}	
 			close(fd);		
@@ -87,10 +95,10 @@ int Daemon(char* argv[]) {
 		flag_do = 0; // lets us use the daemon multiple times
 		
 		if (flag_stop == 1) { // if we are done working with the daemon
-			sem_wait(&sem);
+			sem_wait(sem_p);
+			sem_post(sem_p); // unlocking the semaphore
+			sem_unlink(sem_name); // removing the named semaphore 
 			printf("Stopping the daemon\n");
-			sem_post(&sem); // unlocking the semaphore
-			sem_destroy(&sem); // and destroying it
 			exit(0);
 		}		
 	}
